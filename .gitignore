@@ -1,0 +1,15 @@
+# Ignorar a chave privada do Firebase
+firebase-key.json
+
+# Ignorar node_modules
+node_modules/
+
+# Ignorar arquivos temporários do sistema
+.DS_Store
+Thumbs.db
+
+# Ignorar logs
+*.log
+
+# Ignorar arquivos de ambiente locais (caso tenha)
+.env

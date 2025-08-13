@@ -1,11 +1,11 @@
 const admin = require("firebase-admin");
-const serviceAccount = require("../firebase-key.json");
+
+const serviceAccount = JSON.parse(process.env.FIREBASE_KEY);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: "https://estoquetabcell-default-rtdb.firebaseio.com/"  // COLOQUE AQUI A URL do seu Realtime Database
+  databaseURL: process.env.FIREBASE_DB_URL
 });
 
-const db = admin.database(); // Aqui muda para database()
-
+const db = admin.database();
 module.exports = db;

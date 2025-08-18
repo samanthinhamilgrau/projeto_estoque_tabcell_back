@@ -37,31 +37,37 @@ router.get('/', async (req, res) => {
 
     movimentosArray.sort((a, b) => new Date(b.data) - new Date(a.data));
 
-    const movimentosComDetalhes = await Promise.all(
-      movimentosArray.map(async (mov) => {
-        let nomeProduto = 'Produto não encontrado';
-        if (mov.produtoId) {
-          const prodSnap = await db.ref(`${colProd}/${mov.produtoId}`).once('value');
-          if (prodSnap.exists()) nomeProduto = prodSnap.val().nome;
-        }
+   const movimentosComDetalhes = await Promise.all(
+  movimentosArray.map(async (mov) => {
+    let nomeProduto = 'Produto não encontrado';
 
-        let nomeUsuario = 'Desconhecido';
-        if (mov.usuario && typeof mov.usuario === 'string') {
-          const emailKey = mov.usuario.replace(/\./g, ',');
-          const userSnap = await db.ref(`${colUsers}/${emailKey}`).once('value');
-          if (userSnap.exists()) nomeUsuario = userSnap.val().nome;
-        }
+    if (mov.produtoNome) {
+      // caso exclusão → nome salvo direto
+      nomeProduto = mov.produtoNome;
+    } else if (mov.produtoId) {
+      // caso entrada/saída → busca pelo id
+      const prodSnap = await db.ref(`${colProd}/${mov.produtoId}`).once('value');
+      if (prodSnap.exists()) nomeProduto = prodSnap.val().nome;
+    }
 
-        return {
-          id: mov.id,
-          produto: nomeProduto,
-          quantidade: mov.quantidade || 0,
-          tipo: mov.tipo || '',
-          data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
-          usuario: nomeUsuario
-        };
-      })
-    );
+    let nomeUsuario = 'Desconhecido';
+    if (mov.usuario && typeof mov.usuario === 'string') {
+      const emailKey = mov.usuario.replace(/\./g, ',');
+      const userSnap = await db.ref(`${colUsers}/${emailKey}`).once('value');
+      if (userSnap.exists()) nomeUsuario = userSnap.val().nome;
+    }
+
+    return {
+      id: mov.id,
+      produto: nomeProduto,
+      quantidade: mov.quantidade || 0,
+      tipo: mov.tipo || '',
+      data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
+      usuario: nomeUsuario
+    };
+  })
+);
+
 
     res.json(movimentosComDetalhes);
   } catch (error) {

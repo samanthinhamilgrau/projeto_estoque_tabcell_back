@@ -74,4 +74,41 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Excluir produto
+router.delete('/:id', async (req, res) => {
+  try {
+    const colProd = collectionName(req, 'produtos');
+    const colMov = collectionName(req, 'movimentos');
+
+    const { id } = req.params;
+    const produtoRef = db.ref(`${colProd}/${id}`);
+    const snapshot = await produtoRef.once('value');
+
+    if (!snapshot.exists()) {
+      return res.status(404).json({ error: 'Produto não encontrado' });
+    }
+
+    const produto = snapshot.val();
+
+    // Antes de excluir, salva no histórico
+    const movRef = db.ref(colMov).push();
+    await movRef.set({
+      produtoNome: produto.nome,   // salva o nome porque depois não terá mais id
+      quantidade: 0,
+      tipo: 'Exclusão',
+      data: new Date().toISOString(),
+      usuario: req.headers['x-usuario'] || '' // pega do header (email do usuário logado)
+    });
+
+    // Remove o produto
+    await produtoRef.remove();
+
+    res.json({ message: 'Produto excluído com sucesso' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao excluir produto' });
+  }
+});
+
+
 module.exports = router;

@@ -52,35 +52,68 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Finalizar (apagar) celular
-// Finalizar (apagar) celular e registrar lucro
-router.delete('/:id', async (req, res) => {
+// Finalizar celular e mover para garantia
+router.post('/finalizar-garantia/:id', async (req, res) => {
   try {
     const col = collectionName(req, 'celulares');
+    const garantiaCol = collectionName(req, 'garantia'); // nova coleção
+    const lucroCol = collectionName(req, 'lucroServicos');
     const { id } = req.params;
 
     const celularSnap = await db.ref(`${col}/${id}`).once('value');
     const celular = celularSnap.val();
-    if (!celular) {
-      return res.status(404).json({ error: 'Celular não encontrado.' });
-    }
+    if (!celular) return res.status(404).json({ error: 'Celular não encontrado.' });
 
-    // Registrar no lucro de serviços
-    const colServ = collectionName(req, 'lucroServicos');
-    const servicoRef = db.ref(colServ).push();
+    const dataEntrega = new Date().toISOString();
+
+    // Salvar na garantia
+    const garantiaRef = db.ref(garantiaCol).push();
+    await garantiaRef.set({ ...celular, dataEntrega });
+
+    // Registrar lucro
+    const servicoRef = db.ref(lucroCol).push();
     await servicoRef.set({
       descricao: `${celular.modelo} (${celular.defeito})`,
       valor: Number(celular.valor),
-      data: new Date().toISOString()
+      data: dataEntrega
     });
 
-    // Remover o celular da lista de consertos
+    // Remover da lista de conserto
     await db.ref(`${col}/${id}`).remove();
 
-    res.json({ message: 'Celular finalizado e lucro registrado.' });
+    res.json({ message: 'Celular finalizado, lucro registrado e movido para garantia.' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Erro ao finalizar celular.' });
+  }
+})
+
+// Excluir celular da garantia (definitivo)
+router.delete('/garantia/:id', async (req, res) => {
+  try {
+    const garantiaCol = collectionName(req, 'garantia');
+    const { id } = req.params;
+
+    await db.ref(`${garantiaCol}/${id}`).remove();
+    res.json({ message: 'Celular removido da garantia.' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao excluir da garantia.' });
+  }
+});
+
+// Listar garantia
+router.get('/garantia', async (req, res) => {
+  try {
+    const garantiaCol = collectionName(req, 'garantia');
+    const snapshot = await db.ref(garantiaCol).once('value');
+    const data = snapshot.val();
+    if (!data) return res.json([]);
+    const lista = Object.entries(data).map(([id, c]) => ({ id, ...c }));
+    res.json(lista);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar garantia.' });
   }
 });
 

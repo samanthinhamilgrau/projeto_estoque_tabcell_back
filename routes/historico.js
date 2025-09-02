@@ -1,78 +1,65 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const db = require('../services/firebase');
+const Movimento = require("../models/Movimento");
+const Produto = require("../models/Produto");
+const Usuario = require("../models/Usuario");
 
-function collectionName(req, base) {
-  const loja = req.headers['x-loja'] === '2' ? '2' : '1';
-  return loja === '2' ? `${base}2` : base;
+// Descobre loja pelo header
+function getLoja(req) {
+  return req.headers["x-loja"] === "2" ? "2" : "1";
 }
 
-
 // GET /historico?ano=2025&mes=8
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
   try {
+    const loja = getLoja(req);
     const { ano, mes } = req.query;
 
-    const colMov = collectionName(req, 'movimentos');
-    const colProd = collectionName(req, 'produtos');
-    const colUsers = 'usuarios'; // FIXADO para buscar sempre na mesma coleção
-
-
-    const snapshot = await db.ref(colMov).orderByChild('data').once('value');
-    const movimentosData = snapshot.val() || {};
-
-    let movimentosArray = Object.entries(movimentosData).map(([id, data]) => ({
-      id,
-      ...data
-    }));
+    // Filtro inicial só pela loja
+    let filtro = { loja };
 
     if (ano && mes) {
       const inicio = new Date(ano, mes - 1, 1);
       const fim = new Date(ano, mes, 0, 23, 59, 59);
-      movimentosArray = movimentosArray.filter(mov => {
-        const dataMov = new Date(mov.data);
-        return dataMov >= inicio && dataMov <= fim;
-      });
+      filtro.data = { $gte: inicio, $lte: fim };
     }
 
-    movimentosArray.sort((a, b) => new Date(b.data) - new Date(a.data));
+    let movimentos = await Movimento.find(filtro).sort({ data: -1 });
 
-   const movimentosComDetalhes = await Promise.all(
-  movimentosArray.map(async (mov) => {
-    let nomeProduto = 'Produto não encontrado';
+    // Enriquecer com nomes de produto e usuário
+    const movimentosComDetalhes = await Promise.all(
+      movimentos.map(async (mov) => {
+        let nomeProduto = "Produto não encontrado";
 
-    if (mov.produtoNome) {
-      // caso exclusão → nome salvo direto
-      nomeProduto = mov.produtoNome;
-    } else if (mov.produtoId) {
-      // caso entrada/saída → busca pelo id
-      const prodSnap = await db.ref(`${colProd}/${mov.produtoId}`).once('value');
-      if (prodSnap.exists()) nomeProduto = prodSnap.val().nome;
-    }
+        if (mov.produtoNome) {
+          // exclusão → já tem nome salvo
+          nomeProduto = mov.produtoNome;
+        } else if (mov.produtoId) {
+          const produto = await Produto.findById(mov.produtoId);
+          if (produto) nomeProduto = produto.nome;
+        }
 
-    let nomeUsuario = 'Desconhecido';
-    if (mov.usuario && typeof mov.usuario === 'string') {
-      const emailKey = mov.usuario.replace(/\./g, ',');
-      const userSnap = await db.ref(`${colUsers}/${emailKey}`).once('value');
-      if (userSnap.exists()) nomeUsuario = userSnap.val().nome;
-    }
+        let nomeUsuario = "Desconhecido";
+        if (mov.usuario) {
+          const user = await Usuario.findOne({ email: mov.usuario });
+          if (user) nomeUsuario = user.nome;
+        }
 
-    return {
-      id: mov.id,
-      produto: nomeProduto,
-      quantidade: mov.quantidade || 0,
-      tipo: mov.tipo || '',
-      data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
-      usuario: nomeUsuario
-    };
-  })
-);
-
+        return {
+          id: mov._id,
+          produto: nomeProduto,
+          quantidade: mov.quantidade || 0,
+          tipo: mov.tipo,
+          data: mov.data ? mov.data.toISOString().split("T")[0] : "",
+          usuario: nomeUsuario
+        };
+      })
+    );
 
     res.json(movimentosComDetalhes);
   } catch (error) {
     console.error("Erro ao buscar histórico:", error);
-    res.status(500).json({ error: 'Erro ao buscar histórico' });
+    res.status(500).json({ error: "Erro ao buscar histórico" });
   }
 });
 

@@ -1,60 +1,62 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const db = require('../services/firebase');
+const Produto = require("../models/Produto");
+const Movimento = require("../models/Movimento");
 
-function collectionName(req, base) {
-  const loja = req.headers['x-loja'] === '2' ? '2' : '1';
-  return loja === '2' ? `${base}2` : base;
+// Função para identificar loja pelo header
+function getLoja(req) {
+  return req.headers["x-loja"] === "2" ? "2" : "1";
 }
 
 // Registrar movimento (entrada/saida)
-router.post('/', async (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const colProdutos = collectionName(req, 'produtos');
-    const colMovimentos = collectionName(req, 'movimentos');
-
-    const { produtoId, quantidade, tipo, usuarioEmail } = req.body;
+    const loja = getLoja(req);
+    const { produtoId, quantidade, tipo, usuarioEmail, data } = req.body;
 
     if (!produtoId || quantidade == null || !tipo || !usuarioEmail) {
-      return res.status(400).json({ error: 'Preencha todos os campos' });
+      return res.status(400).json({ error: "Preencha todos os campos" });
     }
 
-    const produtoRef = db.ref(`${colProdutos}/${produtoId}`);
-    const produtoSnap = await produtoRef.once('value');
-
-    if (!produtoSnap.exists()) {
-      return res.status(404).json({ error: 'Produto não encontrado' });
+    // Buscar produto
+    const produto = await Produto.findOne({ _id: produtoId, loja });
+    if (!produto) {
+      return res.status(404).json({ error: "Produto não encontrado" });
     }
 
-    const produtoData = produtoSnap.val();
-    let novaQuantidade = produtoData.quantidadeEntrada || 0;
+    // Atualizar quantidade
+    let novaQuantidade = produto.quantidadeEntrada || 0;
 
-    if (tipo === 'entrada') {
+    if (tipo === "entrada") {
       novaQuantidade += quantidade;
-    } else if (tipo === 'saida') {
+    } else if (tipo === "saida") {
       novaQuantidade -= quantidade;
       if (novaQuantidade < 0) novaQuantidade = 0;
     } else {
-      return res.status(400).json({ error: 'Tipo inválido' });
+      return res.status(400).json({ error: "Tipo inválido" });
     }
 
-    await produtoRef.update({ quantidadeEntrada: novaQuantidade });
+    produto.quantidadeEntrada = novaQuantidade;
+    produto.atualizadoEm = new Date();
+    await produto.save();
 
-    const movimentosRef = db.ref(colMovimentos);
-    const newMovimentoRef = movimentosRef.push();
-
-    await newMovimentoRef.set({
-      produtoId,
+    // Registrar movimento
+    const movimento = new Movimento({
+      produtoNome: produto.nome,
+      produtoId: produto._id,
       quantidade,
       tipo,
-      data: new Date().toISOString(),
+      data: data ? new Date(data) : new Date(),
       usuario: usuarioEmail,
+      loja,
     });
 
-    res.json({ message: 'Movimento registrado com sucesso', novaQuantidade });
+    await movimento.save();
+
+    res.json({ message: "Movimento registrado com sucesso", novaQuantidade });
   } catch (error) {
     console.error("Erro ao registrar movimento:", error);
-    res.status(500).json({ error: 'Erro ao registrar movimento' });
+    res.status(500).json({ error: "Erro ao registrar movimento" });
   }
 });
 

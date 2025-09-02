@@ -1,114 +1,100 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const db = require('../services/firebase');
+const Produto = require("../models/Produto");
+const Movimento = require("../models/Movimento");
 
-function collectionName(req, base) {
-  const loja = req.headers['x-loja'] === '2' ? '2' : '1';
-  return loja === '2' ? `${base}2` : base;
+// Função para identificar loja pelo header
+function getLoja(req) {
+  return req.headers["x-loja"] === "2" ? "2" : "1";
 }
 
-
 // Listar produtos
-router.get('/', async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const col = collectionName(req, 'produtos');
-    const snapshot = await db.ref(col).once('value');
-    const data = snapshot.val() || {};
-    const produtos = Object.entries(data).map(([id, p]) => ({ id, ...p }));
+    const loja = getLoja(req);
+    const produtos = await Produto.find({ loja });
     res.json(produtos);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao buscar produtos' });
+    console.error("Erro ao buscar produtos:", error);
+    res.status(500).json({ error: "Erro ao buscar produtos" });
   }
 });
 
 // Cadastrar produto
-router.post('/', async (req, res) => {
+router.post("/", async (req, res) => {
   try {
-    const col = collectionName(req, 'produtos');
-    const { nome, quantidadeEntrada, valorCompra, valorVenda, quantidadeMinima, foto } = req.body;
+    const loja = getLoja(req);
+    const { nome, quantidadeEntrada, valorCompra, valorVenda, quantidadeMinima, foto, categoria } = req.body;
 
-    if (!nome || quantidadeEntrada == null || valorCompra == null || valorVenda == null || quantidadeMinima == null) {
-      return res.status(400).json({ error: 'Preencha todos os campos' });
+    if (!nome || quantidadeEntrada == null || valorCompra == null || valorVenda == null || quantidadeMinima == null || !categoria) {
+      return res.status(400).json({ error: "Preencha todos os campos" });
     }
 
-    const produtosRef = db.ref(col);
-    const novoProdutoRef = produtosRef.push();
-
-    await novoProdutoRef.set({
+    const novoProduto = new Produto({
       nome,
       quantidadeEntrada,
       valorCompra,
       valorVenda,
       quantidadeMinima,
       foto: foto || null,
-      criadoEm: new Date().toISOString()
+      categoria, // 🔹 salva categoria
+      loja,
     });
+    await novoProduto.save();
 
-    res.status(201).json({ id: novoProdutoRef.key, message: 'Produto cadastrado com sucesso' });
+    res.status(201).json({ message: "Produto cadastrado com sucesso", produto: novoProduto });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao cadastrar produto' });
+    console.error("Erro ao cadastrar produto:", error);
+    res.status(500).json({ error: "Erro ao cadastrar produto" });
   }
 });
 
 // Atualizar produto
-router.put('/:id', async (req, res) => {
+router.put("/:id", async (req, res) => {
   try {
-    const col = collectionName(req, 'produtos');
     const { id } = req.params;
-    const produtoRef = db.ref(`${col}/${id}`);
 
-    const snapshot = await produtoRef.once('value');
-    if (!snapshot.exists()) return res.status(404).json({ error: 'Produto não encontrado' });
+    const produto = await Produto.findById(id);
+    if (!produto) return res.status(404).json({ error: "Produto não encontrado" });
 
-    await produtoRef.update({
-      ...req.body,
-      atualizadoEm: new Date().toISOString()
-    });
+    Object.assign(produto, req.body, { atualizadoEm: new Date() });
 
-    res.json({ message: 'Produto atualizado com sucesso' });
+    await produto.save();
+    res.json({ message: "Produto atualizado com sucesso", produto });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao atualizar produto' });
+    console.error("Erro ao atualizar produto:", error);
+    res.status(500).json({ error: "Erro ao atualizar produto" });
   }
 });
 
 // Excluir produto
-router.delete('/:id', async (req, res) => {
+router.delete("/:id", async (req, res) => {
   try {
-    const colProd = collectionName(req, 'produtos');
-    const colMov = collectionName(req, 'movimentos');
-
+    const loja = getLoja(req);
     const { id } = req.params;
-    const produtoRef = db.ref(`${colProd}/${id}`);
-    const snapshot = await produtoRef.once('value');
 
-    if (!snapshot.exists()) {
-      return res.status(404).json({ error: 'Produto não encontrado' });
-    }
-
-    const produto = snapshot.val();
+    const produto = await Produto.findById(id);
+    if (!produto) return res.status(404).json({ error: "Produto não encontrado" });
 
     // Antes de excluir, salva no histórico
-    const movRef = db.ref(colMov).push();
-    await movRef.set({
-      produtoNome: produto.nome,   // salva o nome porque depois não terá mais id
+    const movimento = new Movimento({
+      produtoNome: produto.nome,
       quantidade: 0,
-      tipo: 'Exclusão',
-      data: new Date().toISOString(),
-      usuario: req.headers['x-usuario'] || '' // pega do header (email do usuário logado)
+      tipo: "Exclusão",
+      usuario: req.headers["x-usuario"] || "",
+      loja,
     });
 
-    // Remove o produto
-    await produtoRef.remove();
+    await movimento.save();
 
-    res.json({ message: 'Produto excluído com sucesso' });
+    // Exclui o produto
+    await produto.deleteOne();
+
+    res.json({ message: "Produto excluído com sucesso" });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao excluir produto' });
+    console.error("Erro ao excluir produto:", error);
+    res.status(500).json({ error: "Erro ao excluir produto" });
   }
 });
-
 
 module.exports = router;
